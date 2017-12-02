@@ -359,11 +359,36 @@ public class Schema
             keys.insert(key.name, key);
         }
     }
+
+    /* convert a relocatable schema to a non relocatable one,
+     * so that the latter can be used in dconf-editor */
+    public Schema converrstononrs(string path)
+    {
+        Schema dest = new Schema();
+        dest.list = this.list;
+        dest.id = this.id;
+        dest.path = path;
+
+        foreach (var key in this.keys.get_values())
+        {
+            string full_name = path + key.name;
+            /* copy to new hashtable */
+            dest.keys.insert(full_name, key);
+            /* set schema to new schema */
+            dest.keys.lookup(full_name).schema = dest;
+            /* also insert key to schemalist keys */
+            this.list.keys.insert(full_name, dest.keys.lookup(full_name));
+
+        }
+
+        return dest;
+    }
 }
 
 public class SchemaList
 {
     public GLib.HashTable<string, Schema> schemas = new GLib.HashTable<string, Schema>(str_hash, str_equal);
+    public GLib.HashTable<string, Schema> rschemas = new GLib.HashTable<string, Schema>(str_hash, str_equal);
     public GLib.HashTable<string, SchemaKey> keys = new GLib.HashTable<string, SchemaKey>(str_hash, str_equal);
     public GLib.HashTable<string, SchemaEnum> enums = new GLib.HashTable<string, SchemaEnum>(str_hash, str_equal);
     public GLib.HashTable<string, SchemaFlags> flags = new GLib.HashTable<string, SchemaFlags>(str_hash, str_equal);
@@ -394,16 +419,18 @@ public class SchemaList
                 var schema = new Schema.from_xml(this, node, gettext_domain);
                 if (schema.path == null)
                 {
-                    // FIXME: What to do here?
-                    continue;
+                    /* relocatable schema found */
+                    rschemas.insert(schema.id, schema);
                 }
-
-                foreach (var key in schema.keys.get_values())
+                else
                 {
-                    string full_name = schema.path + key.name;
-                    keys.insert(full_name, key);
+                    foreach (var key in schema.keys.get_values())
+                    {
+                        string full_name = schema.path + key.name;
+                        keys.insert(full_name, key);
+                    }
+                    schemas.insert(schema.id, schema);
                 }
-                schemas.insert(schema.id, schema);
             }
             else if (node->name == "enum")
             {

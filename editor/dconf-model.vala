@@ -166,13 +166,53 @@ public class Directory : GLib.Object
 
     public Directory? parent;
 
+    private bool load_schema_ran = false;
+    private bool is_rs_schema = true;
+    public string rsid = "";
+
     private KeyModel _key_model;
     public KeyModel key_model
     {
         get {
             update_children ();
             if (_key_model == null)
+            {
+                /* if this dir has a rs schema and no schema was loaded
+                 * and we have the rsid, then load the rs schema as a normal one */
+                if (is_rs_schema && !load_schema_ran && (rsid != ""))
+                {
+                    /* get r.s. based on schema id */
+                    Schema? rsschema = model.schemas.rschemas.lookup(rsid);
+                    /*warning("rsschema id: %s", rsschema.id);*/
+
+                    Schema? nonrsschema = rsschema.converrstononrs(full_name);
+                    /*warning("nonrsschema id: %s", nonrsschema.id);*/
+
+                    /* load schema to this dir */
+                    load_schema(nonrsschema, "");
+
+                    /* using the same load_schema() as for non rs, set this back */
+                    is_rs_schema = true;
+
+                    /* now that the right schema is loaded, add keys from dconf */
+                    update_children ();
+                }
+
+                /* if we don't have the rsid, but this is a rs
+                 * set a dummy string, so that keys from dconf are still loaded
+                 * for them no schema will be added
+                 * (this is for backwards compatibility) */
+                if (is_rs_schema && (rsid == ""))
+                {
+                    rsid = "dummy";
+
+                    update_children ();
+                }
+
                 _key_model = new KeyModel (this);
+
+            }
+
             return _key_model;
         }
         private set {}
@@ -253,6 +293,9 @@ public class Directory : GLib.Object
         {
             foreach (var schema_key in schema.keys.get_values())
                 get_key(schema_key.name);
+
+            load_schema_ran = true;
+            is_rs_schema = false;
         }
         else
         {
@@ -282,7 +325,25 @@ public class Directory : GLib.Object
             }
             else
             {
-                get_key(items[i]);
+                /* if we find a schema id key, set the sid for this directory,
+                 * but don't add it as a normal key
+                 * this prevents the user from seeing it and messing with it */
+                /*warning("items[%d] %s", i, items[i]);*/
+                if (items[i] == "gsettings-relocatable-schema-id")
+                {
+                    Key key = new Key(model, this, items[i], item_name);
+                    rsid = key.value.get_string ();
+                    /*warning("rsid: %s", rsid);*/
+                    continue;
+                }
+
+                /* for the first time on a rs, don't load keys
+                 * non rs normal operation is that load_schema() runs first */
+                if (load_schema_ran)
+                {
+                    get_key(items[i]);
+                }
+
             }
         }
     }
